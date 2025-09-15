@@ -49,15 +49,23 @@ ax.set_axis_off()
 # ----------------------
 # Particles
 # ----------------------
-N = 300
-positions = np.random.rand(N, 3) * 2 - 1
+N = 50  # further reduced for vortex effect
+# Initialize particles in a ring for vortex
+theta = np.linspace(0, 2 * np.pi, N, endpoint=False)
+radius = 0.7 + 0.3 * np.random.rand(N)
+z = (np.random.rand(N) - 0.5) * 0.5
+positions = np.stack([
+    radius * np.cos(theta),
+    radius * np.sin(theta),
+    z
+], axis=1)
 velocities = np.zeros_like(positions)
 
 country_list = np.array(list(countries.values()))
 particle_country = np.random.choice(country_list, N)
 
 # trail buffer
-trail_length = 15
+trail_length = 30  # longer for smoother lines
 history = [[] for _ in range(N)]
 
 # ----------------------
@@ -66,10 +74,8 @@ history = [[] for _ in range(N)]
 
 
 def fake_noise(x, y, z, t):
-    return (
-        np.sin(1.2 * x + 0.8 * y + 0.6 * z + 0.2 * t)
-        + np.cos(1.1 * x - 0.7 * y + 0.3 * z + 0.15 * t)
-    )
+    # Simple noise for subtle vertical swirl
+    return np.sin(2 * x + 2 * y + 0.5 * t) + np.cos(1.5 * z + 0.3 * t)
 
 # ----------------------
 # Rotation helper
@@ -89,6 +95,8 @@ def rotation_matrix(theta):
 
 
 def update(frame):
+    # system spin
+    R = rotation_matrix(np.radians(frame * 0.5))
     year = years[frame % len(years)]
 
     max_rate = df["value"].max()
@@ -103,23 +111,26 @@ def update(frame):
     ax.set_facecolor("black")
     ax.set_axis_off()  # ensure no axes/box come back
 
-    # rotate the camera
-    ax.view_init(elev=25, azim=frame * 0.8)
-
-    # system spin
-    R = rotation_matrix(np.radians(frame * 0.5))
-
     for i in range(N):
         cname = particle_country[i]
         influence = rates[cname]
 
         x, y, z = positions[i]
-        angle = fake_noise(x * 2, y * 2, z * 2, frame * 0.05) * np.pi
-        dx, dy, dz = np.cos(angle), np.sin(angle), np.sin(angle * 0.7)
-        velocities[i] = [dx, dy, dz]
-
-        positions[i] += velocities[i] * 0.01 * (0.5 + influence * 2)
-        positions[i] = (positions[i] + 2) % 2 - 1
+        # Vortex/circular motion around center
+        r = np.sqrt(x**2 + y**2)
+        theta = np.arctan2(y, x)
+        # Circular velocity
+        v_theta = 0.13 + 0.09 * influence
+        # Vertical swirl
+        v_z = 0.04 * fake_noise(x, y, z, frame * 0.04 + i * 0.02)
+        # Outward/inward breathing
+        v_r = 0.01 * np.sin(frame * 0.02 + i * 0.1)
+        # Update position in polar coordinates
+        new_theta = theta + v_theta
+        new_r = r + v_r
+        new_z = z + v_z
+        positions[i] = [
+            new_r * np.cos(new_theta), new_r * np.sin(new_theta), new_z]
 
         # apply rotation
         positions[i] = positions[i] @ R.T
@@ -129,16 +140,35 @@ def update(frame):
         if len(history[i]) > trail_length:
             history[i].pop(0)
 
-        # draw trails fading
+        # Depth of field: fade and size by z
         xs, ys, zs = zip(*history[i])
-        for j in range(len(xs) - 1):
-            alpha = (j + 1) / len(xs)
-            ax.plot(xs[j:j+2], ys[j:j+2], zs[j:j+2],
-                    color=colors[cname], alpha=alpha * 0.7, linewidth=0.8)
+        z_depth = (zs[-1] + 1) / 2  # normalize z to [0,1]
+        dot_alpha = 0.4 + 0.6 * (1 - z_depth)
+        dot_size = 6 + 18 * (1 - z_depth)
 
-        # draw dot
+        # Smooth trail: interpolate points for curve
+        from scipy.interpolate import splprep, splev
+        if len(xs) > 3:
+            tck, u = splprep([xs, ys, zs], s=0)
+            u_fine = np.linspace(0, 1, 30)
+            x_smooth, y_smooth, z_smooth = splev(u_fine, tck)
+            for j in range(len(x_smooth) - 1):
+                trail_z = (z_smooth[j] + 1) / 2
+                alpha = (j + 1) / len(x_smooth)
+                width = 1.2 + 1.5 * (1 - trail_z) * (alpha ** 1.5)
+                ax.plot(x_smooth[j:j+2], y_smooth[j:j+2], z_smooth[j:j+2],
+                        color=colors[cname], alpha=alpha * 0.7 * (1 - trail_z * 0.5), linewidth=width)
+        else:
+            for j in range(len(xs) - 1):
+                trail_z = (zs[j] + 1) / 2
+                alpha = (j + 1) / len(xs)
+                width = 1.2 + 1.5 * (1 - trail_z) * (alpha ** 1.5)
+                ax.plot(xs[j:j+2], ys[j:j+2], zs[j:j+2],
+                        color=colors[cname], alpha=alpha * 0.7 * (1 - trail_z * 0.5), linewidth=width)
+
+        # draw dot with depth of field
         ax.scatter(xs[-1], ys[-1], zs[-1],
-                   c=colors[cname], s=8, alpha=0.9)
+                   c=colors[cname], s=dot_size, alpha=dot_alpha)
 
     return []
 
@@ -147,7 +177,8 @@ def update(frame):
 # Run
 # ----------------------
 ani = animation.FuncAnimation(
-    fig, update, frames=len(years), interval=80, blit=False)
+    fig, update, frames=len(years), interval=100, blit=False)
 plt.show()
 
-ani.save("output.gif", writer="pillow", fps=20)
+# Save as GIF (make sure pillow is installed)
+ani.save("output.gif", writer="pillow", fps=12)
