@@ -30,16 +30,16 @@ df = df[df["year"] >= 1960]
 
 years = sorted(df["year"].unique())
 colors = {
-    "China": "#d62828",
-    "India": "#f77f00",
-    "United States": "#fcbf49",
-    "Japan": "#90be6d"
+    "China": "#de2910",         # Red (China flag)
+    "India": "#ff9933",         # Saffron (India flag)
+    "United States": "#3c3b6e",  # Blue (US flag)
+    "Japan": "#ffffff"          # White (Japan flag)
 }
 
 # ----------------------
 # Figure & Axis
 # ----------------------
-fig = plt.figure(figsize=(10, 10))
+fig = plt.figure(figsize=(960/100, 540/100))  # 960x540 pixels
 fig.patch.set_facecolor("black")
 ax = fig.add_subplot(111, projection="3d", facecolor="black")
 
@@ -52,8 +52,8 @@ ax.set_axis_off()
 N = 50  # further reduced for vortex effect
 # Initialize particles in a ring for vortex
 theta = np.linspace(0, 2 * np.pi, N, endpoint=False)
-radius = 0.7 + 0.3 * np.random.rand(N)
-z = (np.random.rand(N) - 0.5) * 0.5
+radius = 1.5 + 1.0 * np.random.rand(N)
+z = (np.random.rand(N) - 0.5) * 1.2
 positions = np.stack([
     radius * np.cos(theta),
     radius * np.sin(theta),
@@ -110,6 +110,11 @@ def update(frame):
     ax.cla()
     ax.set_facecolor("black")
     ax.set_axis_off()  # ensure no axes/box come back
+
+    # Camera movement: slowly orbit around the vortex
+    azim = 30 + (frame * 360 / 250)  # 360-degree orbit over 10s
+    elev = 30 + 10 * np.sin(frame * 2 * np.pi / 250)  # gentle up/down
+    ax.view_init(elev=elev, azim=azim)
 
     for i in range(N):
         cname = particle_country[i]
@@ -177,8 +182,8 @@ def update(frame):
 # Run
 # ----------------------
 ani = animation.FuncAnimation(
-    fig, update, frames=len(years), interval=100, blit=False)
+    fig, update, frames=250, interval=40, blit=False)  # 250 frames, ~10s at 25fps
 plt.show()
 
 # Save as GIF (make sure pillow is installed)
-ani.save("output.gif", writer="pillow", fps=12)
+ani.save("output.gif", writer="pillow", fps=25, writer_kwargs={"loop": 0})
